@@ -30,6 +30,8 @@ def buildparser():
                         help='directory to cd into before running')
     parser.add_argument('--no-rebuild', default=False, action='store_true',
                         help='Do not rebuild before installing.')
+    parser.add_argument('--only-changed', default=False, action='store_true',
+                        help='Only overwrite files that are older than the copied file.')
     return parser
 
 class DirMaker:
@@ -175,8 +177,16 @@ def check_for_stampfile(fname):
 
 class Installer:
 
-    def __init__(self, lf):
+    def __init__(self, options, lf):
+        self.options = options
         self.lf = lf
+
+    def should_preserve_existing_file(self, from_file, to_file):
+        if not self.options.only_changed:
+            return False
+        from_time = os.stat(from_file).st_mtime
+        to_time = os.stat(to_file).st_mtime
+        return from_time <= to_time
 
     def do_copyfile(self, from_file, to_file):
         if not os.path.isfile(from_file):
@@ -189,11 +199,18 @@ class Installer:
             if not os.path.isfile(to_file):
                 raise RuntimeError('Destination {!r} already exists and is not '
                                    'a file'.format(to_file))
+            if self.should_preserve_existing_file(from_file, to_file):
+                append_to_log(self.lf, '# Preserving old file %s\n' % to_file)
+                print('Preserving existing file %s.' % to_file)
+                return False
             os.unlink(to_file)
+        outdir = os.path.split(to_file)[0]
+        print('Installing %s to %s' % (from_file, outdir))
         shutil.copyfile(from_file, to_file)
         shutil.copystat(from_file, to_file)
         selinux_updates.append(to_file)
         append_to_log(self.lf, to_file)
+        return True
 
     def do_copydir(self, data, src_dir, dst_dir, exclude):
         '''
@@ -258,9 +275,9 @@ class Installer:
                 if not os.path.isdir(parent_dir):
                     os.mkdir(parent_dir)
                     shutil.copystat(os.path.dirname(abs_src), parent_dir)
-                shutil.copy2(abs_src, abs_dst, follow_symlinks=False)
+                # FIXME: what about symlinks?
+                self.do_copyfile(abs_src, abs_dst)
                 sanitize_permissions(abs_dst, data.install_umask)
-                append_to_log(self.lf, abs_dst)
 
     def do_install(self, datafilename):
         with open(datafilename, 'rb') as ifile:
@@ -305,7 +322,6 @@ class Installer:
             mode = i[2]
             outdir = os.path.dirname(outfilename)
             d.dirmaker.makedirs(outdir, exist_ok=True)
-            print('Installing %s to %s' % (fullfilename, outdir))
             self.do_copyfile(fullfilename, outfilename)
             set_mode(outfilename, mode, d.install_umask)
 
@@ -315,7 +331,6 @@ class Installer:
             outfilename = get_destdir_path(d, m[1])
             outdir = os.path.dirname(outfilename)
             d.dirmaker.makedirs(outdir, exist_ok=True)
-            print('Installing %s to %s' % (full_source_filename, outdir))
             if outfilename.endswith('.gz') and not full_source_filename.endswith('.gz'):
                 with open(outfilename, 'wb') as of:
                     with open(full_source_filename, 'rb') as sf:
@@ -323,6 +338,7 @@ class Installer:
                         with gzip.GzipFile(fileobj=of, mode='wb', filename='', mtime=0) as gz:
                             gz.write(sf.read())
                 shutil.copystat(full_source_filename, outfilename)
+                print('Installing %s to %s' % (full_source_filename, outdir))
                 append_to_log(self.lf, outfilename)
             else:
                 self.do_copyfile(full_source_filename, outfilename)
@@ -334,7 +350,6 @@ class Installer:
             fname = os.path.basename(fullfilename)
             outdir = get_destdir_path(d, t[1])
             outfilename = os.path.join(outdir, fname)
-            print('Installing %s to %s' % (fname, outdir))
             d.dirmaker.makedirs(outdir, exist_ok=True)
             self.do_copyfile(fullfilename, outfilename)
             sanitize_permissions(outfilename, d.install_umask)
@@ -371,7 +386,6 @@ class Installer:
             aliases = t[2]
             should_strip = t[3]
             install_rpath = t[4]
-            print('Installing %s to %s' % (fname, outname))
             d.dirmaker.makedirs(outdir, exist_ok=True)
             if not os.path.exists(fname):
                 raise RuntimeError('File {!r} could not be found'.format(fname))
@@ -392,7 +406,6 @@ class Installer:
                 pdb_filename = os.path.splitext(fname)[0] + '.pdb'
                 if not should_strip and os.path.exists(pdb_filename):
                     pdb_outname = os.path.splitext(outname)[0] + '.pdb'
-                    print('Installing pdb file %s to %s' % (pdb_filename, pdb_outname))
                     self.do_copyfile(pdb_filename, pdb_outname)
                     sanitize_permissions(pdb_outname, d.install_umask)
             elif os.path.isdir(fname):
@@ -440,7 +453,7 @@ def run(args):
             sys.exit(-1)
     os.chdir(opts.wd)
     with open(os.path.join(log_dir, 'install-log.txt'), 'w') as lf:
-        installer = Installer(lf)
+        installer = Installer(opts, lf)
         append_to_log(lf, '# List of files installed by Meson')
         append_to_log(lf, '# Does not contain files installed by custom scripts.')
         installer.do_install(datafilename)
