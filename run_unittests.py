@@ -2121,6 +2121,39 @@ recommended as it can lead to undefined behaviour on some platforms''')
         self.assertEqual(obj.builtins['default_library'].value, 'shared')
         self.wipe()
 
+    def get_opts_as_dict(self):
+        result = {}
+        for i in self.introspect('--buildoptions'):
+            result[i['name']] = i['value']
+        return result
+
+    def test_buildtype_setting(self):
+        testdir = os.path.join(self.common_test_dir, '1 trivial')
+        self.init(testdir)
+        opts = self.get_opts_as_dict()
+        self.assertEqual(opts['buildtype'], 'debug')
+        self.assertEqual(opts['debug'], True)
+        self.setconf('-Ddebug=false')
+        opts = self.get_opts_as_dict()
+        self.assertEqual(opts['buildtype'], 'plain')
+        self.assertEqual(opts['debug'], False)
+        self.assertEqual(opts['optimization'], '0')
+
+        # Setting optimizations to 3 should cause buildtype
+        # to go to release mode.
+        self.setconf('-Doptimization=3')
+        opts = self.get_opts_as_dict()
+        self.assertEqual(opts['buildtype'], 'release')
+        self.assertEqual(opts['debug'], False)
+        self.assertEqual(opts['optimization'], '3')
+
+        # Going to debug build type should reset debugging
+        # and optimization
+        self.setconf('-Dbuildtype=debug')
+        opts = self.get_opts_as_dict()
+        self.assertEqual(opts['buildtype'], 'debug')
+        self.assertEqual(opts['debug'], True)
+        self.assertEqual(opts['optimization'], '0')
 
 class FailureTests(BasePlatformTests):
     '''

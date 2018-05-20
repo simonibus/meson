@@ -330,6 +330,51 @@ class CoreData:
             raise RuntimeError('Tried to set unknown builtin option %s.' % optname)
         self.builtins[optname].set_value(value)
 
+        # Make sure that buildtype matches other settings.
+        if optname == 'buildtype':
+            self.set_others_from_buildtype(value)
+        else:
+            self.set_buildtype_from_others()
+
+    def set_others_from_buildtype(self, value):
+        if value == 'plain':
+            opt = '0'
+            debug = False
+        elif value == 'debug':
+            opt = '0'
+            debug = True
+        elif value == 'debugoptimized':
+            opt = '2'
+            debug = True
+        elif value == 'release':
+            opt = '3'
+            debug = False
+        elif value == 'minsize':
+            opt = 's'
+            debug = True
+        else:
+            assert(value == 'custom')
+            return
+        self.builtins['optimization'].set_value(opt)
+        self.builtins['debug'].set_value(debug)
+
+    def set_buildtype_from_others(self):
+        opt = self.builtins['optimization'].value
+        debug = self.builtins['debug'].value
+        if opt == '0' and not debug:
+            mode = 'plain'
+        elif opt == '0' and debug:
+            mode = 'debug'
+        elif opt == '2' and debug:
+            mode = 'debugoptimized'
+        elif opt == '3' and not debug:
+            mode = 'release'
+        elif opt == 's' and debug:
+            mode = 'minsize'
+        else:
+            mode = 'custom'
+        self.builtins['buildtype'].set_value(mode)
+
     def validate_option_value(self, option_name, override_value):
         for opts in (self.builtins, self.base_options, self.compiler_options, self.user_options):
             if option_name in opts:
