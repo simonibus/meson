@@ -123,7 +123,7 @@ arm_buildtype_args = {'plain': [],
 
 msvc_buildtype_args = {'plain': [],
                        'debug': ["/ZI", "/Ob0", "/Od", "/RTC1"],
-                       'debugoptimized': ["/Zi", "/O2", "/Ob1"],
+                       'debugoptimized': ["/Zi", "/Ob1"],
                        'release': ["/Ob2"],
                        'minsize': ["/Zi", "/Ob1"],
                        }
@@ -286,6 +286,9 @@ base_options = {'b_pch': coredata.UserBooleanOption('b_pch', 'Use precompiled he
                 'b_staticpic': coredata.UserBooleanOption('b_staticpic',
                                                           'Build static libraries as position independent',
                                                           True),
+                'b_crtlib': coredata.UserComboOption('b_crtlib', 'C run-time library to use.',
+                                                     ['none', 'md', 'mdd', 'mt', 'mtd', 'from_buildtype'],
+                                                     'from_buildtype'),
                 }
 
 gnulike_instruction_set_args = {'mmx': ['-mmmx'],
@@ -373,6 +376,15 @@ def get_base_compile_args(options, compiler):
                 (options['b_ndebug'].value == 'if-release' and
                  options['buildtype'].value == 'release')):
             args += ['-DNDEBUG']
+    except KeyError:
+        pass
+    try:
+        crt_val = options['b_crtlib'].value
+        buildtype = options['buildtype'].value
+        try:
+            args += compiler.get_crt_compile_args(crt_val, buildtype)
+        except AttributeError:
+            pass
     except KeyError:
         pass
     return args
