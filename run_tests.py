@@ -133,9 +133,6 @@ def get_fake_options(prefix):
 def should_run_linux_cross_tests():
     return shutil.which('arm-linux-gnueabihf-gcc') and not platform.machine().lower().startswith('arm')
 
-def should_run_mingw_cross_tests():
-    return shutil.which('x86_64-w64-mingw32-gcc')
-
 def run_configure_inprocess(meson_command, commandlist):
     old_stdout = sys.stdout
     sys.stdout = mystdout = StringIO()
@@ -179,13 +176,21 @@ if __name__ == '__main__':
     returncode = 0
     # Iterate over list in reverse order to find the last --backend arg
     backend = Backend.ninja
+    cross = False
+    # FIXME: Convert to argparse
     for arg in reversed(sys.argv[1:]):
         if arg.startswith('--backend'):
             if arg.startswith('--backend=vs'):
                 backend = Backend.vs
             elif arg == '--backend=xcode':
                 backend = Backend.xcode
-            break
+        if arg.startswith('--cross'):
+            if arg == '--cross=arm':
+                cross = 'arm'
+            elif arg == '--cross=mingw':
+                cross = 'mingw'
+            else:
+                raise RuntimeError('Unknown cross tests selected')
     # Running on a developer machine? Be nice!
     if not mesonlib.is_windows() and not mesonlib.is_haiku() and 'TRAVIS' not in os.environ:
         os.nice(20)
@@ -217,16 +222,17 @@ if __name__ == '__main__':
                         'coverage.process_startup()\n')
             env['COVERAGE_PROCESS_START'] = '.coveragerc'
             env['PYTHONPATH'] = os.pathsep.join([td] + env.get('PYTHONPATH', []))
-        returncode += subprocess.call(mesonlib.python_command + ['run_unittests.py', '-v'], env=env)
-        # Ubuntu packages do not have a binary without -6 suffix.
-        cross_test_args = mesonlib.python_command + ['run_cross_test.py']
-        if should_run_linux_cross_tests():
-            print(mlog.bold('Running armhf cross tests.').get_text(mlog.colorize_console))
-            print()
-            returncode += subprocess.call(cross_test_args + ['cross/ubuntu-armhf.txt'], env=env)
-        if should_run_mingw_cross_tests():
-            print(mlog.bold('Running mingw-w64 64-bit cross tests.').get_text(mlog.colorize_console))
-            print()
-            returncode += subprocess.call(cross_test_args + ['cross/linux-mingw-w64-64bit.txt'], env=env)
-        returncode += subprocess.call(mesonlib.python_command + ['run_project_tests.py'] + sys.argv[1:], env=env)
+        if not cross:
+            returncode += subprocess.call(mesonlib.python_command + ['run_unittests.py', '-v'], env=env)
+            returncode += subprocess.call(mesonlib.python_command + ['run_project_tests.py'] + sys.argv[1:], env=env)
+        else:
+            cross_test_args = mesonlib.python_command + ['run_cross_test.py']
+            if cross == 'arm':
+                print(mlog.bold('Running armhf cross tests.').get_text(mlog.colorize_console))
+                print()
+                returncode += subprocess.call(cross_test_args + ['cross/ubuntu-armhf.txt'], env=env)
+            elif cross == 'mingw':
+                print(mlog.bold('Running mingw-w64 64-bit cross tests.').get_text(mlog.colorize_console))
+                print()
+                returncode += subprocess.call(cross_test_args + ['cross/linux-mingw-w64-64bit.txt'], env=env)
     sys.exit(returncode)
